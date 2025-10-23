@@ -6,6 +6,7 @@ from flask import Flask
 from threading import Thread
 import requests
 import logging
+import time
 
 # -------------------------
 # Logging setup
@@ -51,23 +52,40 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -------------------------
-# FlareSolverr helper
+# FlareSolverr helper with retry
 # -------------------------
-def get_aternos_cookies():
+def get_aternos_cookies(retries=3, delay=5):
     payload = {
         "cmd": "request.get",
         "url": "https://aternos.org/login",
-        "maxTimeout": 60000
+        "maxTimeout": 120000  # 2 minutes
     }
-    try:
-        resp = requests.post(f"{FLARE_URL}/v1", json=payload, timeout=70).json()
-        cookies = resp['solution']['cookies']
-        cookie_dict = {c['name']: c['value'] for c in cookies}
-        logger.info("✅ Obtained cookies from FlareSolverr.")
-        return cookie_dict
-    except Exception as e:
-        logger.error(f"❌ Failed to get cookies from FlareSolverr: {e}")
-        return None
+
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.post(f"{FLARE_URL}/v1", json=payload, timeout=150)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if 'solution' in data and 'cookies' in data['solution']:
+                cookies = data['solution']['cookies']
+                cookie_dict = {c['name']: c['value'] for c in cookies}
+                logger.info(f"✅ Obtained cookies from FlareSolverr on attempt {attempt}.")
+                return cookie_dict
+            else:
+                logger.warning(f"⚠️ Attempt {attempt}: FlareSolverr returned invalid data: {data}")
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"⚠️ Attempt {attempt}: HTTP request failed: {e}")
+        except ValueError as e:
+            logger.warning(f"⚠️ Attempt {attempt}: Failed to parse JSON: {e}")
+
+        if attempt < retries:
+            logger.info(f"⏳ Retrying in {delay} seconds...")
+            time.sleep(delay)
+
+    logger.error(f"❌ Failed to get cookies from FlareSolverr after {retries} attempts.")
+    return None
 
 # -------------------------
 # Aternos client setup
@@ -166,6 +184,37 @@ async def stopserver(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
         logger.error(f"Error stopping server: {e}")
+
+@bot.command()
+async def retryflare(ctx):
+    """Manually retry FlareSolverr and Aternos login."""
+    await ctx.send("🔄 Retrying FlareSolverr...")
+    logger.info("Manual retry triggered via Discord command.")
+
+    try:
+        cookies = get_aternos_cookies()
+        if not cookies:
+            await ctx.send("❌ Failed to get cookies from FlareSolverr.")
+            return
+
+        atclient.atconn.session.cookies.update(cookies)
+        atclient.login(ATERNOS_USER, ATERNOS_PASS)
+        aternos = atclient.account
+        servers = aternos.list_servers()
+        global server
+        if servers:
+            server = servers[0]
+            await ctx.send(f"✅ FlareSolverr retry successful! Server: {server.name}")
+            logger.info(f"✅ FlareSolverr retry successful. Server: {server.name}")
+            # Restart status updater to refresh immediately
+            update_discord_status.restart()
+        else:
+            server = None
+            await ctx.send("⚠️ No servers found on Aternos account.")
+            logger.warning("No servers found after manual retry.")
+    except Exception as e:
+        await ctx.send(f"❌ Error during FlareSolverr retry: {e}")
+        logger.error(f"Error during FlareSolverr retry: {e}")
 
 # -------------------------
 # Run bot
