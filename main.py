@@ -5,7 +5,7 @@ from python_aternos import Client
 from flask import Flask
 from threading import Thread
 
-# --- Keep bot alive for Replit or similar ---
+# --- Keep bot alive ---
 app = Flask('')
 
 @app.route('/')
@@ -20,20 +20,19 @@ Thread(target=run).start()
 
 # --- Environment variables ---
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-ATERNOS_USER = os.getenv("ATERNOS_USER")
-ATERNOS_PASS = os.getenv("ATERNOS_PASS")
+ATERNOS_SESSION = os.getenv("ATERNOS_SESSION")
 
-if not DISCORD_TOKEN or not ATERNOS_USER or not ATERNOS_PASS:
-    raise ValueError("Missing required environment variables. Please set DISCORD_TOKEN, ATERNOS_USER, and ATERNOS_PASS.")
+if not DISCORD_TOKEN or not ATERNOS_SESSION:
+    raise ValueError("Missing required environment variables. Please set DISCORD_TOKEN and ATERNOS_SESSION.")
 
 # --- Discord bot setup ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- Aternos client setup ---
+# --- Aternos client using cookie ---
 atclient = Client()
-atclient.login(ATERNOS_USER, ATERNOS_PASS)
+atclient.login_cookie(ATERNOS_SESSION)
 aternos = atclient.account
 servers = aternos.list_servers()
 
@@ -46,9 +45,9 @@ server = servers[0]
 @tasks.loop(minutes=1)
 async def update_discord_status():
     try:
-        server.fetch()  # Refresh server info
-        status = server.status  # e.g., "online", "offline"
-        players = getattr(server, "players", None)  # May not exist if Aternos API doesn't provide
+        server.fetch()
+        status = server.status
+        players = getattr(server, "players", None)
         if players is not None:
             activity_text = f"{status.capitalize()} - {players} players"
         else:
