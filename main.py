@@ -30,9 +30,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- Aternos client using cookie ---
+# --- Aternos client using session cookie ---
 atclient = Client()
-atclient.login_cookie(ATERNOS_SESSION)
+atclient.login_with_session(ATERNOS_SESSION)
 aternos = atclient.account
 servers = aternos.list_servers()
 
